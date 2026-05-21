@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft Armor Trim Viewer</title>
+    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        body {
+            margin: 0; padding: 0;
+            background: #1e1e24; color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex; height: 100vh; overflow: hidden;
+        }
+
+        .sidebar {
+            width: 350px; background: #2b2b36; padding: 20px;
+            overflow-y: auto; border-right: 2px solid #3f3f4e;
+            display: flex; flex-direction: column; gap: 15px;
+            box-shadow: 2px 0 15px rgba(0,0,0,0.5); z-index: 10;
+        }
+
+        h1 { font-size: 22px; margin: 0 0 10px 0; color: #fbbf24; border-bottom: 2px solid #4b5563; padding-bottom: 10px; }
+
+        .armor-part { background: #1f1f28; padding: 15px; border-radius: 8px; border: 1px solid #3f3f4e; }
+        .armor-part h3 { margin: 0 0 10px 0; font-size: 16px; color: #9ca3af; }
+
+        label { font-size: 12px; color: #d1d5db; display: block; margin-top: 8px; margin-bottom: 4px; }
+        
+        select {
+            width: 100%; padding: 8px; background: #374151; color: #fff;
+            border: 1px solid #4b5563; border-radius: 4px; outline: none; cursor: pointer;
+        }
+        select:focus { border-color: #fbbf24; }
+
+        .btn-download {
+            background: #10b981; color: white; border: none; padding: 15px;
+            font-size: 16px; font-weight: bold; border-radius: 8px;
+            cursor: pointer; transition: background 0.2s; margin-top: 10px;
+        }
+        .btn-download:hover { background: #059669; }
+
+        .viewer-area { flex: 1; position: relative; cursor: grab; background: #1a202c; width: 100%; height: 100%; }
+        .viewer-area:active { cursor: grabbing; }
+        
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e1e24; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h1>Armor Trim Viewer</h1>
+        
+        <div class="armor-part">
+            <h3>🪖 Helm</h3>
+            <label>1. Rüstungs-Material</label>
+            <select id="helm-mat" onchange="updateArmor()"></select>
+            <label>2. Trim-Muster</label>
+            <select id="helm-trim" onchange="updateArmor()"></select>
+            <label>3. Trim-Material (Farbe)</label>
+            <select id="helm-color" onchange="updateArmor()"></select>
+        </div>
+
+        <div class="armor-part">
+            <h3>👕 Brustpanzer</h3>
+            <label>1. Rüstungs-Material</label>
+            <select id="chest-mat" onchange="updateArmor()"></select>
+            <label>2. Trim-Muster</label>
+            <select id="chest-trim" onchange="updateArmor()"></select>
+            <label>3. Trim-Material (Farbe)</label>
+            <select id="chest-color" onchange="updateArmor()"></select>
+        </div>
+
+        <div class="armor-part">
+            <h3>👖 Beinschutz</h3>
+            <label>1. Rüstungs-Material</label>
+            <select id="legs-mat" onchange="updateArmor()"></select>
+            <label>2. Trim-Muster</label>
+            <select id="legs-trim" onchange="updateArmor()"></select>
+            <label>3. Trim-Material (Farbe)</label>
+            <select id="legs-color" onchange="updateArmor()"></select>
+        </div>
+
+        <div class="armor-part">
+            <h3>👢 Schuhe</h3>
+            <label>1. Rüstungs-Material</label>
+            <select id="boots-mat" onchange="updateArmor()"></select>
+            <label>2. Trim-Muster</label>
+            <select id="boots-trim" onchange="updateArmor()"></select>
+            <label>3. Trim-Material (Farbe)</label>
+            <select id="boots-color" onchange="updateArmor()"></select>
+        </div>
+
+        <button class="btn-download" onclick="downloadImage()">📸 Bild herunterladen</button>
+    </div>
+
+    <div class="viewer-area" id="viewer"></div>
+
+    <script>
+        const materials = { none:'Keine', leather:'Leder', chainmail:'Kettenhemd', iron:'Eisen', gold:'Gold', diamond:'Diamant', netherite:'Netherite' };
+        const patterns = { none:'Kein Trim', coast:'Coast', sentry:'Sentry', vex:'Vex', spire:'Spire', wild:'Wild', rib:'Rib', eye:'Eye' };
+        const trimColors = { amethyst:'Amethyst', copper:'Kupfer', diamond:'Diamant', emerald:'Smaragd', gold:'Gold', iron:'Eisen', lapis:'Lapis', netherite:'Netherite', quartz:'Quarz', redstone:'Redstone' };
+
+        const matHex = { leather:'#A06540', chainmail:'#7A8A93', iron:'#E8E8E8', gold:'#FCEB4F', diamond:'#4AEEED', netherite:'#42393A' };
+        const trimHex = { amethyst:'#9A5CC6', copper:'#B4684D', diamond:'#33EBCB', emerald:'#11A036', gold:'#ECD93F', iron:'#ECECEC', lapis:'#21497B', netherite:'#312D2C', quartz:'#E3DBCB', redstone:'#971607' };
+
+        function fillDropdowns() {
+            ['helm', 'chest', 'legs', 'boots'].forEach(part => {
+                const m = document.getElementById(`${part}-mat`);
+                const t = document.getElementById(`${part}-trim`);
+                const c = document.getElementById(`${part}-color`);
+                for(let [k,v] of Object.entries(materials)) m.add(new Option(v, k));
+                for(let [k,v] of Object.entries(patterns)) t.add(new Option(v, k));
+                for(let [k,v] of Object.entries(trimColors)) c.add(new Option(v, k));
+            });
+        }
+
+        // --- 3D ENGINE ---
+        const container = document.getElementById('viewer');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(25, 20, 35);
+
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; controls.target.set(0, 10, 0);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const light = new THREE.DirectionalLight(0xffffff, 0.6);
+        light.position.set(20, 40, 20);
+        scene.add(light);
+
+        const mainGroup = new THREE.Group();
+        mainGroup.position.y = -5; // Zentrieren
+        scene.add(mainGroup);
+
+        // --- MINECRAFT PROPORTIONEN (Voxel-Maße) ---
+        // Ein Standard Minecraft Block ist 16x16 Pixel. Wir nutzen diese Maße für die Kisten.
+        // Steve's Kopf ist 8x8x8 Pixel, sein Arm 4x12x4 Pixel.
+
+        // --- RÜSTUNGSSTÄNDER BAUEN (Original Minecraft) ---
+        const woodMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
+        const stoneMat = new THREE.MeshStandardMaterial({ color: 0x666666 });
+        
+        // Base Platte
+        const base = new THREE.Mesh(new THREE.BoxGeometry(12, 1, 12), stoneMat); base.position.set(0, 0.5, 0);
+        // Beine (2x11x2 Sticks)
+        const lLeg = new THREE.Mesh(new THREE.BoxGeometry(2, 11, 2), woodMat); lLeg.position.set(2, 6.5, 0);
+        const rLeg = new THREE.Mesh(new THREE.BoxGeometry(2, 11, 2), woodMat); rLeg.position.set(-2, 6.5, 0);
+        // Hüfte (8x2x2 Stick)
+        const hips = new THREE.Mesh(new THREE.BoxGeometry(8, 2, 2), woodMat); hips.position.set(0, 13, 0);
+        // Körper Körper (2x10x2 Stick)
+        const bodyStick = new THREE.Mesh(new THREE.BoxGeometry(2, 10, 2), woodMat); bodyStick.position.set(0, 19, 0);
+        // Schultern (8x3x2 Stick)
+        const shoulders = new THREE.Mesh(new THREE.BoxGeometry(8, 3, 2), woodMat); shoulders.position.set(0, 25.5, 0);
+        // Hals (2x7x2 Stick)
+        const neck = new THREE.Mesh(new THREE.BoxGeometry(2, 7, 2), woodMat); neck.position.set(0, 30.5, 0);
+        
+        mainGroup.add(base, lLeg, rLeg, hips, bodyStick, shoulders, neck);
+
+        // --- RÜSTUNGS TEILE (Unsichtbare 3D Boxen zum Texturieren) ---
+        // Wir erstellen Boxen, die exakt Steve's Voxel-Größe haben und über dem Ständer schweben.
+        function createArmorBlock(w, h, d, x, y, z) {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ transparent: true, opacity: 0 }));
+            mesh.position.set(x, y, z);
+            mesh.userData = { w, h }; // Merken uns die Pixel-Größe für die Textur!
+            mainGroup.add(mesh);
+            return mesh;
+        }
+
+        // Helm (8x8x8 über dem Hals/Kopf)
+        const helmMesh = createArmorBlock(9, 9, 9, 0, 30.5, 0); // Etwas größer gemacht
+
+        // Brust (8x12x4 über dem Körper)
+        const chestBody = createArmorBlock(9, 13, 5, 0, 19, 0);
+        const chestLArm = createArmorBlock(4.5, 12, 4.5, 6.5, 19, 0);
+        const chestRArm = createArmorBlock(4.5, 12, 4.5, -6.5, 19, 0);
+
+        // Beinschutz (Überlappt)
+        const legsBody = createArmorBlock(8.5, 11, 4.5, 0, 13, 0);
+        const legsLLeg = createArmorBlock(4.5, 8, 4.5, 2.2, 8, 0);
+        const legsRLeg = createArmorBlock(4.5, 8, 4.5, -2.2, 8, 0);
+
+        // Schuhe
+        const bootsLLeg = createArmorBlock(5, 6, 5, 2.2, 4, 0);
+        const bootsRLeg = createArmorBlock(5, 6, 5, -2.2, 4, 0);
+
+        // --- PIXEL-ART GENERATOR (GEFIXT) ---
+        // Anstatt ein 16x16 Bild zu dehnen, zeichnen wir live ein Pixel-Raster, 
+        // das exakt zur Größe der 3D-Kiste passt.
+        function applyArmorTexture(mesh, matStr, trimStr, colorStr) {
+            if (matStr === 'none') {
+                mesh.material.opacity = 0;
+                return;
+            }
+            
+            const pW = mesh.userData.w; // Pixel-Breite
+            const pH = mesh.userData.h; // Pixel-Höhe
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = pW; canvas.height = pH; // Leinwand exakt auf Voxel-Größe
+            const ctx = canvas.getContext('2d');
+            
+            // Grundfarbe
+            ctx.fillStyle = matHex[matStr];
+            ctx.fillRect(0, 0, pW, pH);
+            
+            // Schatten-Kanten für 3D Look
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.fillRect(0, pH-1, pW, 1); // Unten verdunkeln
+            ctx.fillRect(0, 0, 1, pH);    // Rechts verdunkeln
+
+            // Trim einzeichnen (Pixel Art live)
+            if (trimStr !== 'none') {
+                ctx.fillStyle = trimHex[colorStr];
+                // Wir zeichnen ein vereinfachtes, scharfes Pixel-Art-Muster
+                switch(trimStr) {
+                    case 'coast': ctx.fillRect(1, pH-3, pW-2, 2); break;
+                    case 'sentry': ctx.fillRect(Math.floor(pW/2)-1, 0, 2, pH); break;
+                    case 'vex': ctx.fillRect(0, 0, pW, 2); ctx.fillRect(Math.floor(pW/2)-1, 2, 2, pH-2); break;
+                    case 'spire': ctx.fillRect(0, pH-2, pW, 2); ctx.fillRect(Math.floor(pW/2)-1, 0, 2, pH); break;
+                    case 'wild': ctx.fillRect(1, 1, 2, pH-2); ctx.fillRect(pW-3, 1, 2, pH-2); break;
+                    case 'rib': for(let y=2; y<pH; y+=3) ctx.fillRect(0, y, pW, 1); break;
+                    case 'eye': ctx.fillRect(Math.floor(pW/2)-2, Math.floor(pH/2)-2, 4, 4); break;
+                }
+            }
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter; // WICHTIG: Erhält scharfe Pixel (kein Stretching!)
+            
+            mesh.material = new THREE.MeshStandardMaterial({ 
+                map: texture, transparent: true, opacity: 1, roughness: 0.8
+            });
+        }
+
+        // Löst aus, wenn du etwas im Menü änderst
+        function updateArmor() {
+            const v = (id) => document.getElementById(id).value;
+            
+            // Jedes Teil einzeln ansprechen, damit es perfektionierte Voxel-Größe hat
+            applyArmorTexture(helmMesh, v('helm-mat'), v('helm-trim'), v('helm-color'));
+            
+            applyArmorTexture(chestBody, v('chest-mat'), v('chest-trim'), v('chest-color'));
+            applyArmorTexture(chestLArm, v('chest-mat'), v('chest-trim'), v('chest-color'));
+            applyArmorTexture(chestRArm, v('chest-mat'), v('chest-trim'), v('chest-color'));
+            
+            applyArmorTexture(legsBody, v('legs-mat'), v('legs-trim'), v('legs-color'));
+            applyArmorTexture(legsLLeg, v('legs-mat'), v('legs-trim'), v('legs-color'));
+            applyArmorTexture(legsRLeg, v('legs-mat'), v('legs-trim'), v('legs-color'));
+            
+            applyArmorTexture(bootsLLeg, v('boots-mat'), v('boots-trim'), v('boots-color'));
+            applyArmorTexture(bootsRLeg, v('boots-mat'), v('boots-trim'), v('boots-color'));
+        }
+
+        // DOWNLOAD FUNKTION
+        function downloadImage() {
+            renderer.render(scene, camera); 
+            const dataURL = renderer.domElement.toDataURL('image/png');
+            const a = document.createElement('a');
+            a.href = dataURL;
+            a.download = 'minecraft_armor_trim.png';
+            a.click();
+        }
+
+        // 3D Engine am Laufen halten
+        window.addEventListener('resize', () => {
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Starten
+        window.onload = () => {
+            fillDropdowns();
+            
+            // Standard-Einstellung: Netherite mit Gold Rib-Trim
+            document.getElementById('chest-mat').value = 'netherite';
+            document.getElementById('chest-trim').value = 'rib';
+            document.getElementById('chest-color').value = 'gold';
+            
+            const width = container.clientWidth || window.innerWidth - 350;
+            const height = container.clientHeight || window.innerHeight;
+            
+            renderer.setSize(width, height);
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+
+            updateArmor();
+            animate();
+        };
+    </script>
+</body>
+</html>
